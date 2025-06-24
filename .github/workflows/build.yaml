@@ -1,0 +1,48 @@
+# Secrets:
+# RELEASE_TOKEN = write permission token
+# ALLOWED_USER = username
+
+name: build
+
+on:
+  workflow_dispatch:
+  push: { branches: [ main ] }
+
+jobs:
+  build:
+
+    strategy:
+      matrix:
+        include:
+          - arch: x86
+            platform: 386
+            runner: ubuntu-24.04
+          - arch: x86_64
+            platform: amd64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            platform: arm64
+            runner: ubuntu-24.04-arm
+
+    runs-on: ${{ matrix.runner }}
+    env:
+      arch: ${{ matrix.arch }}
+      platform: ${{ matrix.platform }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build for ${{ matrix.arch }}
+      env:
+        ALLOWED_USER: ${{ secrets.ALLOWED_USER }}
+      run: |
+        mkdir "${arch}"
+        docker run --volume=./"${arch}":/release -e ALLOWED_USER="${ALLOWED_USER}" -e arch="${arch}"              -i alpine sh -c 'apk add bash patchelf  ; bash' <musl.sh
+        docker run --volume=./"${arch}":/release -e ALLOWED_USER="${ALLOWED_USER}" --platform linux/"${platform}" -i alpine sh -c 'apk add bash build-base; bash' < <( cat static/*.sh )
+
+    # gen release: git tag -a release -m 'release here' && git push origin tag release
+    - name: Upload Release
+      env:
+        GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      run: |
+        ( cd "${arch}"; tar -czf ../"${arch}".tar.gz * )
+        gh release upload --clobber release "${arch}".tar.gz
